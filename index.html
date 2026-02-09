@@ -3,51 +3,64 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PyTransfer - Invia File</title>
+    <title>G-Transfer Sicuro</title>
     <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); height: 100vh; display: flex; justify-content: center; align-items: center; margin: 0; }
-        .container { background: white; padding: 40px; border-radius: 20px; box-shadow: 0 15px 35px rgba(0,0,0,0.2); width: 100%; max-width: 400px; text-align: center; }
-        h2 { color: #333; margin-bottom: 20px; }
-        input[type="file"] { border: 2px dashed #ddd; padding: 20px; width: 100%; box-sizing: border-box; border-radius: 10px; margin-bottom: 20px; cursor: pointer; }
-        button { background: #764ba2; color: white; border: none; padding: 15px; width: 100%; border-radius: 10px; font-size: 16px; font-weight: bold; cursor: pointer; transition: 0.3s; }
-        button:hover { background: #5a3a7d; }
-        #result { margin-top: 25px; padding: 15px; background: #f8f9fa; border-radius: 10px; display: none; word-break: break-all; }
-        a { color: #667eea; text-decoration: none; font-weight: bold; }
+        body { font-family: 'Segoe UI', sans-serif; background: #eef2f3; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .box { background: white; padding: 40px; border-radius: 20px; box-shadow: 0 15px 35px rgba(0,0,0,0.1); width: 380px; text-align: center; }
+        h1 { color: #2c3e50; margin-bottom: 25px; }
+        input { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ddd; border-radius: 10px; box-sizing: border-box; }
+        button { width: 100%; padding: 14px; background: #27ae60; color: white; border: none; border-radius: 10px; cursor: pointer; font-size: 16px; font-weight: bold; }
+        button:hover { background: #219150; }
+        #status { margin-top: 25px; padding: 15px; border-radius: 10px; display: none; word-break: break-all; }
+        .ok { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .no { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h2>PyTransfer</h2>
-        <p>Carica un file e ottieni un link privato</p>
-        <input type="file" id="fileInput">
-        <button onclick="startUpload()">Genera Link di Download</button>
-        <div id="result"></div>
-    </div>
 
-    <script>
-        async function startUpload() {
-            const fileInput = document.getElementById('fileInput');
-            const resultDiv = document.getElementById('result');
-            
-            if (fileInput.files.length === 0) {
-                alert("Per favore, seleziona un file.");
-                return;
-            }
+<div class="box">
+    <h1>G-Transfer 🔒</h1>
+    <input type="password" id="pass" placeholder="Password Segreta">
+    <input type="file" id="file">
+    <button onclick="startUpload()">Invia File</button>
+    <div id="status"></div>
+</div>
 
-            resultDiv.style.display = "block";
-            resultDiv.innerHTML = "Caricamento in corso...";
+<script>
+    async function startUpload() {
+        const fileBox = document.getElementById('file');
+        const passBox = document.getElementById('pass');
+        const status = document.getElementById('status');
 
-            const formData = new FormData();
-            formData.append("file", fileInput.files[0]);
-
-            try {
-                const response = await fetch("/upload", { method: "POST", body: formData });
-                const data = await response.json();
-                resultDiv.innerHTML = `<strong>File pronto!</strong><br>Invia questo link:<br><br><a href="${data.link_download}" target="_blank">${data.link_download}</a><br><br><small>Scade il: ${data.scadenza}</small>`;
-            } catch (error) {
-                resultDiv.innerHTML = "Errore durante il caricamento.";
-            }
+        if (!fileBox.files[0] || !passBox.value) {
+            alert("Compila tutti i campi!");
+            return;
         }
-    </script>
+
+        const formData = new FormData();
+        formData.append("file", fileBox.files[0]);
+        formData.append("password", passBox.value);
+
+        status.style.display = "block";
+        status.className = "";
+        status.innerText = "Invio in corso...";
+
+        try {
+            const res = await fetch('/upload', { method: 'POST', body: formData });
+            const data = await res.json();
+
+            if (res.ok) {
+                status.className = "ok";
+                status.innerHTML = `Link creato!<br><br><a href="${data.link_download}" target="_blank">${data.link_download}</a><br><br><small>Scade il: ${data.scadenza}</small>`;
+            } else {
+                status.className = "no";
+                status.innerText = "Errore: " + (data.detail || "Riprova");
+            }
+        } catch (e) {
+            status.className = "no";
+            status.innerText = "Errore di connessione.";
+        }
+    }
+</script>
 </body>
 </html>
