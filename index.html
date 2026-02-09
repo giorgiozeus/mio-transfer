@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PyTransfer - Invia File</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); height: 100vh; display: flex; justify-content: center; align-items: center; margin: 0; }
+        .container { background: white; padding: 40px; border-radius: 20px; box-shadow: 0 15px 35px rgba(0,0,0,0.2); width: 100%; max-width: 400px; text-align: center; }
+        h2 { color: #333; margin-bottom: 20px; }
+        input[type="file"] { border: 2px dashed #ddd; padding: 20px; width: 100%; box-sizing: border-box; border-radius: 10px; margin-bottom: 20px; cursor: pointer; }
+        button { background: #764ba2; color: white; border: none; padding: 15px; width: 100%; border-radius: 10px; font-size: 16px; font-weight: bold; cursor: pointer; transition: 0.3s; }
+        button:hover { background: #5a3a7d; }
+        #result { margin-top: 25px; padding: 15px; background: #f8f9fa; border-radius: 10px; display: none; word-break: break-all; }
+        a { color: #667eea; text-decoration: none; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>PyTransfer</h2>
+        <p>Carica un file e ottieni un link privato</p>
+        <input type="file" id="fileInput">
+        <button onclick="startUpload()">Genera Link di Download</button>
+        <div id="result"></div>
+    </div>
+
+    <script>
+        async function startUpload() {
+            const fileInput = document.getElementById('fileInput');
+            const resultDiv = document.getElementById('result');
+            
+            if (fileInput.files.length === 0) {
+                alert("Per favore, seleziona un file.");
+                return;
+            }
+
+            resultDiv.style.display = "block";
+            resultDiv.innerHTML = "Caricamento in corso...";
+
+            const formData = new FormData();
+            formData.append("file", fileInput.files[0]);
+
+            try {
+                const response = await fetch("/upload", { method: "POST", body: formData });
+                const data = await response.json();
+                resultDiv.innerHTML = `<strong>File pronto!</strong><br>Invia questo link:<br><br><a href="${data.link_download}" target="_blank">${data.link_download}</a><br><br><small>Scade il: ${data.scadenza}</small>`;
+            } catch (error) {
+                resultDiv.innerHTML = "Errore durante il caricamento.";
+            }
+        }
+    </script>
+</body>
+</html>
