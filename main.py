@@ -79,8 +79,8 @@ async def carica_file(file: UploadFile = File(...)):
     conn.commit()
     conn.close()
     
-    return {
-        "link_download": f"http://localhost:8000/download/{file_id}",
+   return {
+        "link_download": f"https://mio-transfer-1.onrender.com/download/{file_id}",
         "scadenza": scadenza
     }
 
