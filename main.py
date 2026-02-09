@@ -1,9 +1,10 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 import shutil
 import os
 import uuid
 import sqlite3
+import io
 from datetime import datetime, timedelta
 
 app = FastAPI()
@@ -26,7 +27,6 @@ def init_db():
 init_db()
 
 def pulizia_file_scaduti():
-    """Elimina i file fisici e i record dal database quando scadono"""
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
     ora_attuale = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -35,7 +35,6 @@ def pulizia_file_scaduti():
     
     for row in scaduti:
         file_id = row[0]
-        # Elimina il file fisico se esiste
         if os.path.exists(UPLOAD_DIR):
             for f in os.listdir(UPLOAD_DIR):
                 if f.startswith(file_id):
@@ -43,7 +42,6 @@ def pulizia_file_scaduti():
                         os.remove(os.path.join(UPLOAD_DIR, f))
                     except:
                         pass
-        # Elimina dal DB
         c.execute("DELETE FROM files WHERE id = ?", (file_id,))
     
     conn.commit()
@@ -55,12 +53,11 @@ async def home():
     if os.path.exists("index.html"):
         with open("index.html", "r", encoding="utf-8") as f:
             return f.read()
-    return "<h1>File index.html non trovato! Assicurati che sia nella stessa cartella.</h1>"
+    return "<h1>File index.html non trovato!</h1>"
 
 # --- LOGICA DI CARICAMENTO (UPLOAD) ---
 @app.post("/upload")
 async def carica_file(file: UploadFile = File(...)):
-    # Ad ogni nuovo upload, puliamo i vecchi file scaduti
     pulizia_file_scaduti()
     
     file_id = str(uuid.uuid4())
@@ -70,7 +67,6 @@ async def carica_file(file: UploadFile = File(...)):
     with open(percorso, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
     
-    # Scadenza a 7 giorni (puoi cambiare in timedelta(hours=1) per testare subito)
     scadenza = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
     
     conn = sqlite3.connect(DB_NAME)
@@ -79,7 +75,8 @@ async def carica_file(file: UploadFile = File(...)):
     conn.commit()
     conn.close()
     
-   return {
+    # QUI C'ERA L'ERRORE DI SPAZIO - ORA È CORRETTO:
+    return {
         "link_download": f"https://mio-transfer-1.onrender.com/download/{file_id}",
         "scadenza": scadenza
     }
@@ -105,7 +102,7 @@ async def scarica_file(file_id: str):
     nome_file_fisico = next((f for f in files if f.startswith(file_id)), None)
 
     if not nome_file_fisico:
-        raise HTTPException(status_code=404, detail="File non trovato sul server.")
+        raise HTTPException(status_code=404, detail="File non trovato.")
 
     return FileResponse(
         path=os.path.join(UPLOAD_DIR, nome_file_fisico),
@@ -115,4 +112,4 @@ async def scarica_file(file_id: str):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=10000)
