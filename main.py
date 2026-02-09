@@ -1,17 +1,18 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
-from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form
+from fastapi.responses import FileResponse, HTMLResponse
 import shutil
 import os
 import uuid
 import sqlite3
-import io
 from datetime import datetime, timedelta
 
 app = FastAPI()
 
-# --- CONFIGURAZIONE INIZIALE ---
+# --- CONFIGURAZIONE ---
 UPLOAD_DIR = "uploads"
 DB_NAME = "trasferimenti.db"
+# --- QUI SCEGLI LA TUA PASSWORD ---
+PASSWORD_SEGRETA = "giorgio123" 
 
 if not os.path.exists(UPLOAD_DIR):
     os.makedirs(UPLOAD_DIR)
@@ -47,7 +48,6 @@ def pulizia_file_scaduti():
     conn.commit()
     conn.close()
 
-# --- INTERFACCIA UTENTE ---
 @app.get("/", response_class=HTMLResponse)
 async def home():
     if os.path.exists("index.html"):
@@ -55,9 +55,11 @@ async def home():
             return f.read()
     return "<h1>File index.html non trovato!</h1>"
 
-# --- LOGICA DI CARICAMENTO (UPLOAD) ---
 @app.post("/upload")
-async def carica_file(file: UploadFile = File(...)):
+async def carica_file(password: str = Form(...), file: UploadFile = File(...)):
+    if password != PASSWORD_SEGRETA:
+        raise HTTPException(status_code=403, detail="Password errata!")
+
     pulizia_file_scaduti()
     
     file_id = str(uuid.uuid4())
@@ -75,13 +77,11 @@ async def carica_file(file: UploadFile = File(...)):
     conn.commit()
     conn.close()
     
-    # QUI C'ERA L'ERRORE DI SPAZIO - ORA È CORRETTO:
     return {
         "link_download": f"https://mio-transfer-1.onrender.com/download/{file_id}",
         "scadenza": scadenza
     }
 
-# --- LOGICA DI SCARICAMENTO (DOWNLOAD) ---
 @app.get("/download/{file_id}")
 async def scarica_file(file_id: str):
     conn = sqlite3.connect(DB_NAME)
@@ -109,7 +109,3 @@ async def scarica_file(file_id: str):
         filename=nome_originale,
         media_type='application/octet-stream'
     )
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=10000)
