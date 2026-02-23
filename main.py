@@ -12,7 +12,7 @@ app = FastAPI()
 UPLOAD_DIR = "uploads"
 DB_NAME = "trasferimenti.db"
 # --- QUI SCEGLI LA TUA PASSWORD ---
-PASSWORD_SEGRETA = "093121048" 
+PASSWORD_SEGRETA = "0932947322" 
 
 if not os.path.exists(UPLOAD_DIR):
     os.makedirs(UPLOAD_DIR)
