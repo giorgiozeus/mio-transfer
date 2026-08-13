@@ -3,64 +3,133 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>G-Transfer Sicuro</title>
+    <title>G-Transfer - Invia File Cifrato</title>
     <style>
-        body { font-family: 'Segoe UI', sans-serif; background: #eef2f3; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-        .box { background: white; padding: 40px; border-radius: 20px; box-shadow: 0 15px 35px rgba(0,0,0,0.1); width: 380px; text-align: center; }
-        h1 { color: #2c3e50; margin-bottom: 25px; }
-        input { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ddd; border-radius: 10px; box-sizing: border-box; }
-        button { width: 100%; padding: 14px; background: #27ae60; color: white; border: none; border-radius: 10px; cursor: pointer; font-size: 16px; font-weight: bold; }
-        button:hover { background: #219150; }
-        #status { margin-top: 25px; padding: 15px; border-radius: 10px; display: none; word-break: break-all; }
-        .ok { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
-        .no { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; display: flex; justify-content: center; align-items: center; margin: 0; padding: 20px; box-sizing: border-box; }
+        .container { background: white; padding: 40px; border-radius: 20px; box-shadow: 0 15px 35px rgba(0,0,0,0.2); width: 100%; max-width: 400px; text-align: center; }
+        h2 { color: #333; margin-bottom: 4px; }
+        p.subtitle { color: #777; margin-top: 0; font-size: 14px; }
+        input[type="password"], input[type="text"] { width: 100%; box-sizing: border-box; padding: 14px; border: 2px solid #ddd; border-radius: 10px; margin-bottom: 8px; font-size: 15px; }
+        input[type="file"] { border: 2px dashed #ddd; padding: 20px; width: 100%; box-sizing: border-box; border-radius: 10px; margin: 12px 0; cursor: pointer; }
+        button { background: #764ba2; color: white; border: none; padding: 15px; width: 100%; border-radius: 10px; font-size: 16px; font-weight: bold; cursor: pointer; transition: 0.3s; }
+        button:hover { background: #5a3a7d; }
+        button:disabled { background: #bbb; cursor: not-allowed; }
+        #result { margin-top: 25px; padding: 15px; background: #f8f9fa; border-radius: 10px; display: none; word-break: break-all; }
+        #erroreServer { color: #b91c1c; font-size: 13px; margin-top: 6px; display: none; }
+        a { color: #667eea; text-decoration: none; font-weight: bold; }
+        .barra-forza { height: 6px; border-radius: 3px; background: #eee; overflow: hidden; margin-bottom: 4px; }
+        .barra-forza-interna { height: 100%; width: 0%; transition: 0.3s; background: #dc2626; }
+        #testoForza { font-size: 12px; text-align: left; color: #777; margin-bottom: 12px; }
+        .requisiti { text-align: left; font-size: 12px; color: #999; margin-bottom: 14px; }
+        .requisiti li.ok { color: #16a34a; }
     </style>
 </head>
 <body>
+    <div class="container">
+        <h2>🔒 G-Transfer</h2>
+        <p class="subtitle">Il file viene cifrato con la password che scegli qui sotto</p>
 
-<div class="box">
-    <h1>G-Transfer 🔒</h1>
-    <input type="password" id="pass" placeholder="Password Segreta">
-    <input type="file" id="file">
-    <button onclick="startUpload()">Invia File</button>
-    <div id="status"></div>
-</div>
+        <input type="password" id="passwordInput" placeholder="Password di cifratura" oninput="valutaForza()">
+        <div class="barra-forza"><div class="barra-forza-interna" id="barraForzaInterna"></div></div>
+        <div id="testoForza">Inserisci una password</div>
+        <ul class="requisiti" id="listaRequisiti">
+            <li id="req-len">Almeno 10 caratteri</li>
+            <li id="req-maiuscola">Una lettera maiuscola</li>
+            <li id="req-minuscola">Una lettera minuscola</li>
+            <li id="req-numero">Un numero</li>
+            <li id="req-simbolo">Un simbolo (es. ! ? # % -)</li>
+        </ul>
 
-<script>
-    async function startUpload() {
-        const fileBox = document.getElementById('file');
-        const passBox = document.getElementById('pass');
-        const status = document.getElementById('status');
+        <input type="file" id="fileInput">
+        <button id="btnInvia" onclick="startUpload()" disabled>Genera Link di Download</button>
+        <div id="erroreServer"></div>
+        <div id="result"></div>
+    </div>
 
-        if (!fileBox.files[0] || !passBox.value) {
-            alert("Compila tutti i campi!");
-            return;
-        }
+    <script>
+        function valutaForza() {
+            const pw = document.getElementById('passwordInput').value;
+            const requisiti = {
+                'req-len': pw.length >= 10,
+                'req-maiuscola': /[A-Z]/.test(pw),
+                'req-minuscola': /[a-z]/.test(pw),
+                'req-numero': /[0-9]/.test(pw),
+                'req-simbolo': /[^A-Za-z0-9]/.test(pw),
+            };
 
-        const formData = new FormData();
-        formData.append("file", fileBox.files[0]);
-        formData.append("password", passBox.value);
-
-        status.style.display = "block";
-        status.className = "";
-        status.innerText = "Invio in corso...";
-
-        try {
-            const res = await fetch('/upload', { method: 'POST', body: formData });
-            const data = await res.json();
-
-            if (res.ok) {
-                status.className = "ok";
-                status.innerHTML = `Link creato!<br><br><a href="${data.link_download}" target="_blank">${data.link_download}</a><br><br><small>Scade il: ${data.scadenza}</small>`;
-            } else {
-                status.className = "no";
-                status.innerText = "Errore: " + (data.detail || "Riprova");
+            let soddisfatti = 0;
+            for (const [id, ok] of Object.entries(requisiti)) {
+                const el = document.getElementById(id);
+                el.classList.toggle('ok', ok);
+                if (ok) soddisfatti++;
             }
-        } catch (e) {
-            status.className = "no";
-            status.innerText = "Errore di connessione.";
+
+            const percentuale = (soddisfatti / 5) * 100;
+            const barra = document.getElementById('barraForzaInterna');
+            const testo = document.getElementById('testoForza');
+            barra.style.width = percentuale + '%';
+
+            const coloriEtesti = [
+                ['#dc2626', 'Molto debole'],
+                ['#dc2626', 'Debole'],
+                ['#f59e0b', 'Sufficiente'],
+                ['#f59e0b', 'Buona'],
+                ['#16a34a', 'Robusta'],
+                ['#16a34a', 'Molto robusta'],
+            ];
+            const [colore, etichetta] = coloriEtesti[soddisfatti];
+            barra.style.background = colore;
+            testo.textContent = pw.length === 0 ? 'Inserisci una password' : etichetta;
+
+            document.getElementById('btnInvia').disabled = soddisfatti < 5;
+            return soddisfatti === 5;
         }
-    }
-</script>
+
+        async function startUpload() {
+            const fileInput = document.getElementById('fileInput');
+            const passwordInput = document.getElementById('passwordInput');
+            const resultDiv = document.getElementById('result');
+            const erroreDiv = document.getElementById('erroreServer');
+
+            erroreDiv.style.display = "none";
+
+            if (fileInput.files.length === 0) {
+                alert("Per favore, seleziona un file.");
+                return;
+            }
+            if (!valutaForza()) {
+                alert("La password non è ancora abbastanza robusta.");
+                return;
+            }
+
+            resultDiv.style.display = "block";
+            resultDiv.innerHTML = "Cifratura e caricamento in corso...";
+
+            const formData = new FormData();
+            formData.append("file", fileInput.files[0]);
+            formData.append("password", passwordInput.value);
+
+            try {
+                const response = await fetch("/upload", { method: "POST", body: formData });
+                if (!response.ok) {
+                    const errData = await response.json().catch(() => ({}));
+                    erroreDiv.textContent = errData.detail || "Errore durante il caricamento.";
+                    erroreDiv.style.display = "block";
+                    resultDiv.style.display = "none";
+                    return;
+                }
+                const data = await response.json();
+                resultDiv.innerHTML = `<strong>File cifrato e pronto!</strong><br>Invia questo link (la password NON è inclusa, comunicala separatamente):<br><br><a href="${data.link_download}" target="_blank">${data.link_download}</a><br><br><small>Scade il: ${data.scadenza}</small>`;
+                passwordInput.value = "";
+                valutaForza();
+            } catch (error) {
+                erroreDiv.textContent = "Errore di connessione durante il caricamento.";
+                erroreDiv.style.display = "block";
+                resultDiv.style.display = "none";
+            }
+        }
+
+        valutaForza();
+    </script>
 </body>
 </html>
