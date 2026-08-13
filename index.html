@@ -29,6 +29,7 @@
         <h2>🔒 G-Transfer</h2>
         <p class="subtitle">Il file viene cifrato con la password che scegli qui sotto</p>
 
+        <input type="password" id="chiaveAccessoInput" placeholder="Chiave di accesso" autocomplete="off">
         <input type="password" id="passwordInput" placeholder="Password di cifratura" oninput="valutaForza()">
         <div class="barra-forza"><div class="barra-forza-interna" id="barraForzaInterna"></div></div>
         <div id="testoForza">Inserisci una password</div>
@@ -88,6 +89,7 @@
         async function startUpload() {
             const fileInput = document.getElementById('fileInput');
             const passwordInput = document.getElementById('passwordInput');
+            const chiaveAccessoInput = document.getElementById('chiaveAccessoInput');
             const resultDiv = document.getElementById('result');
             const erroreDiv = document.getElementById('erroreServer');
 
@@ -95,6 +97,10 @@
 
             if (fileInput.files.length === 0) {
                 alert("Per favore, seleziona un file.");
+                return;
+            }
+            if (!chiaveAccessoInput.value.trim()) {
+                alert("Inserisci la chiave di accesso fornita da chi gestisce questo servizio.");
                 return;
             }
             if (!valutaForza()) {
@@ -108,12 +114,17 @@
             const formData = new FormData();
             formData.append("file", fileInput.files[0]);
             formData.append("password", passwordInput.value);
+            formData.append("upload_key", chiaveAccessoInput.value);
 
             try {
                 const response = await fetch("/upload", { method: "POST", body: formData });
                 if (!response.ok) {
                     const errData = await response.json().catch(() => ({}));
-                    erroreDiv.textContent = errData.detail || "Errore durante il caricamento.";
+                    if (response.status === 401) {
+                        erroreDiv.textContent = "Chiave di accesso errata. Verifica di aver digitato quella corretta.";
+                    } else {
+                        erroreDiv.textContent = errData.detail || "Errore durante il caricamento.";
+                    }
                     erroreDiv.style.display = "block";
                     resultDiv.style.display = "none";
                     return;
@@ -133,3 +144,4 @@
     </script>
 </body>
 </html>
+
