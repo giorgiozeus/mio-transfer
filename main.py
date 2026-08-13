@@ -1,9 +1,13 @@
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, Response
 import os
+import re
 import uuid
 import base64
 import sqlite3
+import time
+import threading
+from collections import defaultdict, deque
 from datetime import datetime, timedelta
 from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives import hashes
@@ -16,6 +20,23 @@ UPLOAD_DIR = "uploads"
 DB_NAME = "trasferimenti.db"
 DIMENSIONE_MASSIMA_MB = 200  # limite di sicurezza per non riempire il disco del servizio gratuito
 PBKDF2_ITERAZIONI = 390_000
+
+# --- CONFIGURAZIONE ANTI-ABUSO ---
+# Chiave opzionale condivisa per l'upload: se impostata come variabile d'ambiente
+# UPLOAD_SECRET su Render, solo chi la conosce può caricare file. Se lasciata vuota,
+# l'endpoint resta pubblico (comportamento originale) ma protetto dal rate limit sotto.
+UPLOAD_SECRET = os.environ.get("UPLOAD_SECRET", "")
+
+MAX_TENTATIVI_PASSWORD = 5       # tentativi falliti consentiti per singolo file_id
+BLOCCO_MINUTI_DOPO_TENTATIVI = 15  # minuti di blocco dopo aver esaurito i tentativi
+
+MAX_UPLOAD_PER_ORA_PER_IP = 20   # upload consentiti per IP ogni ora
+
+# Strutture in-memory (sufficienti per una singola istanza; si resettano al riavvio
+# del servizio, che su Render free avviene comunque periodicamente per inattività).
+_lock_tentativi = threading.Lock()
+_tentativi_falliti = {}   # file_id -> {"conteggio": int, "bloccato_fino": datetime|None}
+_upload_per_ip = defaultdict(deque)  # ip -> deque di timestamp degli upload recenti
 
 if not os.path.exists(UPLOAD_DIR):
     os.makedirs(UPLOAD_DIR)
@@ -82,6 +103,64 @@ def deriva_chiave(password: str, salt: bytes) -> bytes:
     return base64.urlsafe_b64encode(kdf.derive(password.encode("utf-8")))
 
 
+# --- ANTI-BRUTEFORCE SUI TENTATIVI DI PASSWORD PER IL DOWNLOAD ---
+def controlla_blocco_tentativi(file_id: str):
+    """Solleva 429 se il file_id ha esaurito i tentativi consentiti."""
+    with _lock_tentativi:
+        stato = _tentativi_falliti.get(file_id)
+        if stato and stato["bloccato_fino"] and datetime.now() < stato["bloccato_fino"]:
+            minuti_rimanenti = int((stato["bloccato_fino"] - datetime.now()).total_seconds() // 60) + 1
+            raise HTTPException(
+                status_code=429,
+                detail=f"Troppi tentativi con password errata. Riprova tra circa {minuti_rimanenti} minuti.",
+            )
+
+
+def registra_tentativo_fallito(file_id: str):
+    with _lock_tentativi:
+        stato = _tentativi_falliti.setdefault(file_id, {"conteggio": 0, "bloccato_fino": None})
+        stato["conteggio"] += 1
+        if stato["conteggio"] >= MAX_TENTATIVI_PASSWORD:
+            stato["bloccato_fino"] = datetime.now() + timedelta(minutes=BLOCCO_MINUTI_DOPO_TENTATIVI)
+            stato["conteggio"] = 0
+
+
+def azzera_tentativi(file_id: str):
+    with _lock_tentativi:
+        _tentativi_falliti.pop(file_id, None)
+
+
+# --- ANTI-ABUSO SUGLI UPLOAD (chiave condivisa opzionale + rate limit per IP) ---
+def controlla_chiave_upload(chiave_fornita: str):
+    if UPLOAD_SECRET and chiave_fornita != UPLOAD_SECRET:
+        raise HTTPException(status_code=401, detail="Chiave di upload mancante o errata.")
+
+
+def controlla_rate_limit_upload(ip: str):
+    ora = time.time()
+    un_ora_fa = ora - 3600
+    with _lock_tentativi:
+        coda = _upload_per_ip[ip]
+        while coda and coda[0] < un_ora_fa:
+            coda.popleft()
+        if len(coda) >= MAX_UPLOAD_PER_ORA_PER_IP:
+            raise HTTPException(status_code=429, detail="Troppi upload da questo indirizzo IP. Riprova più tardi.")
+        coda.append(ora)
+
+
+# --- SANIFICAZIONE NOME FILE PER L'HEADER Content-Disposition ---
+def sanifica_nome_file(nome: str) -> str:
+    """Rimuove caratteri di controllo, CR/LF (che potrebbero iniettare header
+    HTTP arbitrari) e virgolette, e limita la lunghezza. Il nome mostrato
+    all'utente resta leggibile, solo i caratteri pericolosi vengono ripuliti."""
+    if not nome:
+        return "file_scaricato"
+    nome = re.sub(r'[\r\n\x00-\x1f]', '', nome)
+    nome = nome.replace('"', "'")
+    nome = nome.strip() or "file_scaricato"
+    return nome[:255]
+
+
 # --- INTERFACCIA UTENTE (pagina di invio) ---
 @app.get("/", response_class=HTMLResponse)
 async def home():
@@ -93,8 +172,12 @@ async def home():
 
 # --- LOGICA DI CARICAMENTO (UPLOAD): il file viene cifrato PRIMA di essere scritto su disco ---
 @app.post("/upload")
-async def carica_file(request: Request, file: UploadFile = File(...), password: str = Form(...)):
+async def carica_file(request: Request, file: UploadFile = File(...), password: str = Form(...), upload_key: str = Form("")):
     pulizia_file_scaduti()
+
+    controlla_chiave_upload(upload_key)
+    ip_client = request.client.host if request.client else "sconosciuto"
+    controlla_rate_limit_upload(ip_client)
 
     if not password_e_robusta(password):
         raise HTTPException(
@@ -206,6 +289,8 @@ async function scarica() {{
 # --- LOGICA DI DECIFRATURA E CONSEGNA DEL FILE ---
 @app.post("/scarica/{file_id}")
 async def scarica_file(file_id: str, password: str = Form(...)):
+    controlla_blocco_tentativi(file_id)
+
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
     c.execute("SELECT nome_originale, data_scadenza, salt_b64 FROM files WHERE id = ?", (file_id,))
@@ -233,14 +318,20 @@ async def scarica_file(file_id: str, password: str = Form(...)):
     try:
         contenuto_decifrato = Fernet(chiave).decrypt(contenuto_cifrato)
     except InvalidToken:
+        registra_tentativo_fallito(file_id)
         raise HTTPException(status_code=401, detail="Password errata.")
+
+    # Password corretta: azzeriamo il contatore dei tentativi falliti per questo file
+    azzera_tentativi(file_id)
+
+    nome_sicuro = sanifica_nome_file(nome_originale)
 
     return Response(
         content=contenuto_decifrato,
         media_type="application/octet-stream",
         headers={
-            "Content-Disposition": f'attachment; filename="{nome_originale}"',
-            "X-Nome-File": nome_originale,
+            "Content-Disposition": f'attachment; filename="{nome_sicuro}"',
+            "X-Nome-File": nome_sicuro,
         },
     )
 
